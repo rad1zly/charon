@@ -212,9 +212,9 @@ export function initDb() {
   const defaults = {
     agent_enabled: 'true',
     trading_mode: process.env.TRADING_MODE || 'dry_run',
-    llm_candidate_pick_count: process.env.LLM_CANDIDATE_PICK_COUNT || '10',
-    llm_candidate_max_age_ms: process.env.LLM_CANDIDATE_MAX_AGE_MS || String(10 * 60 * 1000),
-    llm_min_confidence: '75',
+    batch_pick_count: process.env.BATCH_PICK_COUNT || '10',
+    candidate_max_age_ms: process.env.CANDIDATE_MAX_AGE_MS || String(10 * 60 * 1000),
+    min_score: '60',
     max_open_positions: process.env.MAX_OPEN_POSITIONS || '3',
     dry_run_buy_sol: '0.1',
     default_tp_percent: '50',
@@ -248,7 +248,39 @@ export function initDb() {
   const stratInsert = db.prepare('INSERT OR IGNORE INTO strategies (id, name, enabled, config_json, created_at_ms) VALUES (?, ?, ?, ?, ?)');
   const ts = Date.now();
 
-  stratInsert.run('sniper', 'Sniper', 1, JSON.stringify({
+  stratInsert.run('trencher', 'Trencher', 0, JSON.stringify({
+    entry_mode: 'immediate',
+    min_source_count: 2,
+    require_fee_claim: false,
+    token_age_max_ms: 21600000,
+    min_mcap_usd: 15000,
+    max_mcap_usd: 150000,
+    min_fee_claim_sol: 0,
+    min_gmgn_total_fee_sol: 0,
+    min_holders: 200,
+    max_top20_holder_percent: 15,
+    min_saved_wallet_holders: 0,
+    max_ath_distance_pct: 0,
+    min_graduated_volume_usd: 0,
+    min_liquidity_usd: 10000,
+    trending_min_volume_usd: 15000,
+    trending_min_swaps: 250,
+    trending_max_rug_ratio: 0.25,
+    trending_max_bundler_rate: 0.3,
+    position_size_sol: 0.05,
+    max_open_positions: 3,
+    tp_percent: 40,
+    sl_percent: -20,
+    trailing_enabled: true,
+    trailing_percent: 15,
+    partial_tp: true,
+    partial_tp_at_percent: 60,
+    partial_tp_sell_percent: 50,
+    max_hold_ms: 2700000,
+    min_score: 65,
+  }), ts);
+
+  stratInsert.run('sniper', 'Sniper', 0, JSON.stringify({
     entry_mode: 'immediate',
     min_source_count: 2,
     require_fee_claim: true,
@@ -276,8 +308,8 @@ export function initDb() {
     partial_tp_at_percent: 0,
     partial_tp_sell_percent: 0,
     max_hold_ms: 0,
-    use_llm: true,
-    llm_min_confidence: 50,
+    min_liquidity_usd: 5000,
+    min_score: 60,
   }), ts);
 
   stratInsert.run('dip_buy', 'Dip Buy', 0, JSON.stringify({
@@ -308,8 +340,8 @@ export function initDb() {
     partial_tp_at_percent: 0,
     partial_tp_sell_percent: 0,
     max_hold_ms: 0,
-    use_llm: true,
-    llm_min_confidence: 60,
+    min_liquidity_usd: 5000,
+    min_score: 60,
   }), ts);
 
   stratInsert.run('smart_money', 'Smart Money', 0, JSON.stringify({
@@ -340,8 +372,8 @@ export function initDb() {
     partial_tp_at_percent: 100,
     partial_tp_sell_percent: 50,
     max_hold_ms: 0,
-    use_llm: true,
-    llm_min_confidence: 70,
+    min_liquidity_usd: 10000,
+    min_score: 70,
   }), ts);
 
   stratInsert.run('degen', 'Degen', 0, JSON.stringify({
@@ -372,9 +404,13 @@ export function initDb() {
     partial_tp_at_percent: 0,
     partial_tp_sell_percent: 0,
     max_hold_ms: 0,
-    use_llm: false,
-    llm_min_confidence: 0,
+    min_liquidity_usd: 0,
+    min_score: 55,
   }), ts);
+
+  // Fresh installs default to Trencher; existing installs keep their active strategy.
+  const hasEnabled = db.prepare('SELECT COUNT(*) AS count FROM strategies WHERE enabled = 1').get().count;
+  if (!hasEnabled) db.prepare("UPDATE strategies SET enabled = 1 WHERE id = 'trencher'").run();
 }
 
 export function ensureColumn(table, column, ddl) {

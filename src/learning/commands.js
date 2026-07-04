@@ -10,7 +10,7 @@ export async function runLearning(chatId, windowArg = '12h') {
   const windowMs = parseWindowMs(windowArg);
   await bot.sendMessage(chatId, `Learning from the last ${formatWindow(windowMs)}...`);
   const summary = summarizeLearningWindow(windowMs);
-  const { lessons, raw } = await generateLessons(summary);
+  const { lessons, raw } = generateLessons(summary);
   const runId = storeLearningRun(windowMs, summary, lessons, raw);
   return bot.sendMessage(chatId, learningReportText(runId, summary, lessons), {
     parse_mode: 'HTML',

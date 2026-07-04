@@ -84,6 +84,6 @@ export function summarizeLearningWindow(windowMs) {
       best,
       worst,
     },
-    llm: { batches, actions },
+    screening: { batches, actions },
   };
 }

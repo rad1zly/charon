@@ -1,10 +1,9 @@
-import axios from 'axios';
-import { ENABLE_LLM, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT_MS } from '../config.js';
-import { now, json, stripThinking, strictJsonFromText } from '../utils.js';
+import { now, json } from '../utils.js';
 import { fmtPct } from '../format.js';
 import { db } from '../db/connection.js';
 
-export function fallbackLessons(summary) {
+// Hard-coded heuristics over the closed-position window. No LLM involved.
+export function generateLessons(summary) {
   const lessons = [];
   const bestRoute = summary.positions.byRoute?.[0];
   const worstRoute = [...(summary.positions.byRoute || [])].sort((a, b) => a.pnlPercent - b.pnlPercent)[0];
@@ -33,53 +32,7 @@ export function fallbackLessons(summary) {
       evidence: { closed: summary.positions.closed },
     });
   }
-  return lessons.slice(0, 6);
-}
-
-export async function generateLessons(summary) {
-  const fallback = fallbackLessons(summary);
-  if (!ENABLE_LLM || !LLM_API_KEY) return { lessons: fallback, raw: { fallback: true } };
-  try {
-    const res = await axios.post(`${LLM_BASE_URL.replace(/\/$/, '')}/chat/completions`, {
-      model: LLM_MODEL,
-      temperature: 0.1,
-      messages: [
-        {
-          role: 'system',
-          content: [
-            'You are Charon learning from dry-run trading evidence.',
-            'Return strict JSON only.',
-            'Do not invent trades or outcomes.',
-            'Create compact operational lessons that can improve the next screening prompt.',
-          ].join(' '),
-        },
-        {
-          role: 'user',
-          content: JSON.stringify({
-            task: 'Analyze this dry-run window and produce up to 6 lessons for future candidate screening.',
-            output_schema: {
-              lessons: [{ lesson: 'short actionable rule', evidence: 'specific supporting data' }],
-            },
-            summary,
-          }),
-        },
-      ],
-    }, {
-      timeout: LLM_TIMEOUT_MS,
-      headers: { authorization: `Bearer ${LLM_API_KEY}`, 'content-type': 'application/json' },
-    });
-    const parsed = strictJsonFromText(res.data?.choices?.[0]?.message?.content || '');
-    const lessons = Array.isArray(parsed.lessons)
-      ? parsed.lessons.map(item => ({
-          lesson: String(item.lesson || '').slice(0, 500),
-          evidence: item.evidence ?? {},
-        })).filter(item => item.lesson)
-      : [];
-    return { lessons: lessons.length ? lessons.slice(0, 6) : fallback, raw: parsed };
-  } catch (err) {
-    console.log(`[learn] LLM failed: ${err.message}`);
-    return { lessons: fallback, raw: { error: err.message, fallback: true } };
-  }
+  return { lessons: lessons.slice(0, 6), raw: { engine: 'rules' } };
 }
 
 export function storeLearningRun(windowMs, summary, lessons, raw) {

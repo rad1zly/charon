@@ -27,7 +27,7 @@ export function activeStrategy() {
   if (strategyCache.config && Date.now() - strategyCache.at < 5000) return strategyCache.config;
   const row = db.prepare('SELECT * FROM strategies WHERE enabled = 1 LIMIT 1').get();
   if (!row) {
-    const fallback = strategyById('sniper');
+    const fallback = strategyById('trencher');
     if (fallback) return fallback;
     return defaultStrategy();
   }
@@ -76,16 +76,17 @@ export function strategySetting(key, fallback) {
 
 function defaultStrategy() {
   return {
-    id: 'sniper', name: 'Sniper',
-    entry_mode: 'immediate', min_source_count: 2, require_fee_claim: true,
-    token_age_max_ms: 3600000, min_mcap_usd: 7000, max_mcap_usd: 200000,
-    min_fee_claim_sol: 0.5, min_gmgn_total_fee_sol: 10, min_holders: 0,
-    max_top20_holder_percent: 100, min_saved_wallet_holders: 0, max_ath_distance_pct: 0,
-    min_graduated_volume_usd: 0, trending_min_volume_usd: 0, trending_min_swaps: 0,
-    trending_max_rug_ratio: 0.3, trending_max_bundler_rate: 0.5,
-    position_size_sol: 0.1, max_open_positions: 3,
-    tp_percent: 50, sl_percent: -25, trailing_enabled: true, trailing_percent: 20,
-    partial_tp: false, partial_tp_at_percent: 0, partial_tp_sell_percent: 0,
-    max_hold_ms: 0, use_llm: true, llm_min_confidence: 50,
+    id: 'trencher', name: 'Trencher',
+    entry_mode: 'immediate', min_source_count: 2, require_fee_claim: false,
+    token_age_max_ms: 21600000, min_mcap_usd: 15000, max_mcap_usd: 150000,
+    min_fee_claim_sol: 0, min_gmgn_total_fee_sol: 0, min_holders: 200,
+    max_top20_holder_percent: 15, min_saved_wallet_holders: 0, max_ath_distance_pct: 0,
+    min_graduated_volume_usd: 0, min_liquidity_usd: 10000,
+    trending_min_volume_usd: 15000, trending_min_swaps: 250,
+    trending_max_rug_ratio: 0.25, trending_max_bundler_rate: 0.3,
+    position_size_sol: 0.05, max_open_positions: 3,
+    tp_percent: 40, sl_percent: -20, trailing_enabled: true, trailing_percent: 15,
+    partial_tp: true, partial_tp_at_percent: 60, partial_tp_sell_percent: 50,
+    max_hold_ms: 2700000, min_score: 65,
   };
 }

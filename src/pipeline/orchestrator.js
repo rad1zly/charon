@@ -1,9 +1,9 @@
 import { now, pruneSeen } from '../utils.js';
 import { numSetting, boolSetting } from '../db/settings.js';
-import { upsertCandidate, updateCandidateStatus, recentEligibleCandidates, candidateById } from '../db/candidates.js';
+import { upsertCandidate, updateCandidateStatus, recentEligibleCandidates } from '../db/candidates.js';
 import { storeDecision, storeBatchDecision, logDecisionEvent } from '../db/decisions.js';
 import { buildCandidate, filterCandidate, signalLabel } from './candidateBuilder.js';
-import { decideCandidateBatch } from './llm.js';
+import { decideCandidateBatch, minScoreFor } from './ruleEngine.js';
 import { activeStrategy } from '../db/settings.js';
 import { createDryRunPosition, createLivePosition, canOpenMorePositions, openPositionCount, tradingMode } from '../db/positions.js';
 import { sendBatchReveal, sendTelegram, sendPositionOpen, sendTradeIntent } from '../telegram/send.js';
@@ -23,7 +23,7 @@ setDegenHandler(maybeProcessDegenCandidate);
 setCandidateHandler(processCandidateFromSignals);
 
 export async function processCandidateFromSignals(signals) {
-  // Skip if max positions reached — don't waste enrichment/LLM calls
+  // Skip if max positions reached — don't waste enrichment calls
   if (!canOpenMorePositions()) {
     const max = numSetting('max_open_positions', 3);
     console.log(`[agent] max positions reached (${openPositionCount()}/${max}), skipping ${signals.mint.slice(0, 8)}...`);
@@ -39,29 +39,9 @@ export async function processCandidateFromSignals(signals) {
   }
 
   const strat = activeStrategy();
-  let rows, batchDecision, batchId;
-
-  if (!strat.use_llm) {
-    const selfRow = candidateById(candidateId);
-    rows = selfRow ? [selfRow] : [];
-    batchId = null;
-    batchDecision = {
-      verdict: 'BUY',
-      confidence: 100,
-      selected_candidate_id: candidateId,
-      selected_mint: candidate.token.mint,
-      selected_row: selfRow,
-      reason: `Strategy '${strat.id}' is rule-based (use_llm: false); filters passed.`,
-      risks: [],
-      suggested_tp_percent: strat.tp_percent ?? numSetting('default_tp_percent', 50),
-      suggested_sl_percent: strat.sl_percent ?? numSetting('default_sl_percent', -25),
-      raw: null,
-    };
-  } else {
-    rows = recentEligibleCandidates(numSetting('llm_candidate_pick_count', 10));
-    batchDecision = await decideCandidateBatch(rows, candidateId);
-    batchId = storeBatchDecision(candidateId, rows, batchDecision);
-  }
+  const rows = recentEligibleCandidates(numSetting('batch_pick_count', 10));
+  const batchDecision = decideCandidateBatch(rows, candidateId);
+  const batchId = storeBatchDecision(candidateId, rows, batchDecision);
   const selectedRow = batchDecision.selected_row;
   const selectedThisCandidate = selectedRow?.id === candidateId;
   const currentDecision = selectedThisCandidate
@@ -87,7 +67,7 @@ export async function processCandidateFromSignals(signals) {
 
   if (batchId) await sendBatchReveal(batchId, rows, batchDecision, candidateId);
 
-  if (selectedRow && boolSetting('agent_enabled', true) && batchDecision.verdict === 'BUY' && batchDecision.confidence >= numSetting('llm_min_confidence', 75)) {
+  if (selectedRow && boolSetting('agent_enabled', true) && batchDecision.verdict === 'BUY') {
     if (!canOpenMorePositions()) {
       const max = numSetting('max_open_positions', 3);
       console.log(`[agent] max open positions reached (${openPositionCount()}/${max}), skipping buy ${selectedRow.candidate.token.mint}`);
@@ -113,7 +93,7 @@ export async function processCandidateFromSignals(signals) {
       action: selectedRow ? 'entry_not_approved' : 'no_candidate_selected',
       guardrails: {
         agentEnabled: boolSetting('agent_enabled', true),
-        confidenceThreshold: numSetting('llm_min_confidence', 75),
+        minScore: minScoreFor(strat),
         openPositions: openPositionCount(),
         maxOpenPositions: numSetting('max_open_positions', 3),
       },
@@ -151,7 +131,7 @@ export async function handleApprovedBuy(selectedRow, decision, batchId, rows = [
   }
 
   if (mode === 'dry_run') {
-    const positionId = await createDryRunPosition(freshSelectedRow.id, freshSelectedRow.candidate, decision, `llm_batch_${batchId}`);
+    const positionId = await createDryRunPosition(freshSelectedRow.id, freshSelectedRow.candidate, decision, `rule_batch_${batchId}`);
     logDecisionEvent({
       batchId,
       triggerCandidateId,

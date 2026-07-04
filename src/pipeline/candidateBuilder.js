@@ -75,6 +75,12 @@ export function filterCandidate(candidate) {
     failures.push(`holders: ${holderCount} < ${strat.min_holders}`);
   }
 
+  // Liquidity floor — unknown liquidity (0) fails too; thin pools are the #1 rug vector
+  const liquidityUsd = Number(candidate.metrics.liquidityUsd || 0);
+  if (strat.min_liquidity_usd > 0 && liquidityUsd < strat.min_liquidity_usd) {
+    failures.push(`liquidity: ${liquidityUsd} < ${strat.min_liquidity_usd}`);
+  }
+
   // Top holder concentration
   if (strat.max_top20_holder_percent < 100 && Number.isFinite(maxHolder) && maxHolder > strat.max_top20_holder_percent) {
     failures.push(`max top holder: ${maxHolder}% > ${strat.max_top20_holder_percent}%`);

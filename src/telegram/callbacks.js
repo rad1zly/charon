@@ -168,8 +168,9 @@ const STRAT_PRESETS = {
   max_mcap_usd: [0, 50000, 100000, 200000, 500000, 1000000],
   trailing_percent: [10, 15, 20, 25, 30],
   min_source_count: [1, 2, 3, 4],
-  min_holders: [0, 100, 500, 1000, 2000, 5000],
-  llm_min_confidence: [0, 30, 50, 60, 70, 80, 90],
+  min_holders: [0, 100, 200, 500, 1000, 2000, 5000],
+  min_score: [50, 55, 60, 65, 70, 75, 80],
+  min_liquidity_usd: [0, 5000, 10000, 20000, 50000],
   partial_tp_at_percent: [25, 50, 75, 100, 150, 200],
   partial_tp_sell_percent: [25, 33, 50, 75],
   max_hold_ms: [0, 1800000, 3600000, 7200000, 14400000, 28800000, 86400000],
@@ -196,7 +197,7 @@ async function handleStratConfig(query, chatId, key) {
   delete newConfig.name;
 
   // Boolean toggles
-  const boolKeys = new Set(['trailing_enabled', 'partial_tp', 'use_llm', 'require_fee_claim']);
+  const boolKeys = new Set(['trailing_enabled', 'partial_tp', 'require_fee_claim']);
   if (boolKeys.has(key)) {
     newConfig[key] = !strat[key];
     updateStrategyConfig(strat.id, newConfig);
@@ -239,9 +240,9 @@ async function updateSettingFromButton(query, key, value) {
     'trending_max_rug_ratio',
     'trending_max_bundler_rate',
     'trading_mode',
-    'llm_min_confidence',
-    'llm_candidate_pick_count',
-    'llm_candidate_max_age_ms',
+    'min_score',
+    'batch_pick_count',
+    'candidate_max_age_ms',
     'max_open_positions',
     'dry_run_buy_sol',
     'default_tp_percent',
@@ -251,11 +252,7 @@ async function updateSettingFromButton(query, key, value) {
   ]);
   if (!valid.has(key) || value == null) return bot.sendMessage(chatId, 'Unknown setting.');
   setSetting(key, value);
-  const text = key.startsWith('default_') || key === 'dry_run_buy_sol' || key === 'trading_mode' || key === 'llm_min_confidence' || key === 'llm_candidate_pick_count' || key === 'llm_candidate_max_age_ms' || key === 'max_open_positions'
-    ? agentText()
-    : filtersText();
-  const extra = key.startsWith('default_') || key === 'dry_run_buy_sol' || key === 'trading_mode' || key === 'llm_min_confidence' || key === 'llm_candidate_pick_count' || key === 'llm_candidate_max_age_ms' || key === 'max_open_positions'
-    ? agentKeyboard()
-    : filtersKeyboard();
-  return editMenuMessage(query, text, extra);
+  const agentKeys = new Set(['dry_run_buy_sol', 'trading_mode', 'min_score', 'batch_pick_count', 'candidate_max_age_ms', 'max_open_positions']);
+  const isAgentKey = key.startsWith('default_') || agentKeys.has(key);
+  return editMenuMessage(query, isAgentKey ? agentText() : filtersText(), isAgentKey ? agentKeyboard() : filtersKeyboard());
 }
