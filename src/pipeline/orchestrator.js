@@ -2,6 +2,8 @@ import { now, pruneSeen } from '../utils.js';
 import { numSetting, boolSetting } from '../db/settings.js';
 import { upsertCandidate, updateCandidateStatus, recentEligibleCandidates } from '../db/candidates.js';
 import { storeDecision, storeBatchDecision, logDecisionEvent } from '../db/decisions.js';
+import { evaluateFundamentalFilters } from '../execution/fundamentalFilter.js';
+import { evaluateChartFilter } from '../execution/chartFilter.js';
 import { buildCandidate, filterCandidate, signalLabel } from './candidateBuilder.js';
 import { decideCandidateBatch, minScoreFor } from './ruleEngine.js';
 import { activeStrategy } from '../db/settings.js';
@@ -127,6 +129,68 @@ export async function handleApprovedBuy(selectedRow, decision, batchId, rows = [
       '',
       `Failures: ${escapeHtml((freshSelectedRow.candidate.filters?.failures || []).join('; ') || 'fresh execution guard failed')}`,
     ].join('\n'));
+    return;
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // Layer 1: Fundamental filter (pre-entry token-quality gates)
+  // Layer 2: Chart filter (Supertrend TF15M with momentum fallback)
+  // Both must pass to proceed with execution.
+  // ──────────────────────────────────────────────────────────────
+  const strat = activeStrategy();
+  const mint = freshSelectedRow.candidate.token?.mint || freshSelectedRow.candidate.mint || '';
+
+  const fundamental = await evaluateFundamentalFilters(freshSelectedRow.candidate, strat);
+  if (!fundamental.pass) {
+    updateCandidateStatus(freshSelectedRow.id, 'fundamental_filter_rejected');
+    const failedNames = fundamental.failed.map(c => c.name).join(', ');
+    logDecisionEvent({
+      batchId,
+      triggerCandidateId,
+      selectedRow: freshSelectedRow,
+      rows: executionRows,
+      decision,
+      mode,
+      action: 'entry_rejected_fundamental_filter',
+      guardrails: { failed: fundamental.failed },
+    });
+    await sendTelegram([
+      '🛑 <b>Fundamental filter rejected</b>',
+      '',
+      candidateSummary(freshSelectedRow.candidate, decision),
+      '',
+      `Failed: ${escapeHtml(failedNames)}`,
+    ].join('\n'));
+    return;
+  }
+
+  // Count actual signal sources from candidate.signals flags (matches ruleEngine.js logic)
+  const cand = freshSelectedRow.candidate || {};
+  const signalSourceCount = ['hasFeeClaim', 'hasGraduated', 'hasTrending']
+    .filter(key => cand.signals?.[key] || cand.candidate?.signals?.[key]).length;
+  const chart = await evaluateChartFilter(mint, strat, { sourceCount: signalSourceCount });
+  if (!chart.pass) {
+    updateCandidateStatus(freshSelectedRow.id, 'chart_filter_rejected');
+    const failedNames = (chart.failed || []).map(c => c.name).join(', ');
+    logDecisionEvent({
+      batchId,
+      triggerCandidateId,
+      selectedRow: freshSelectedRow,
+      rows: executionRows,
+      decision,
+      mode,
+      action: 'entry_rejected_chart_filter',
+      guardrails: { failed: chart.failed, meta: chart.meta },
+    });
+    await sendTelegram([
+      '🛑 <b>Chart filter rejected</b>',
+      '',
+      candidateSummary(freshSelectedRow.candidate, decision),
+      '',
+      `Failed: ${escapeHtml(failedNames)}`,
+      '',
+      chart.meta ? `Meta: ${escapeHtml(JSON.stringify(chart.meta))}` : '',
+    ].filter(Boolean).join('\n'));
     return;
   }
 
