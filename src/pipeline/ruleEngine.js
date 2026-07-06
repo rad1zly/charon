@@ -38,10 +38,14 @@ export function scoreCandidate(candidate) {
   const savedHolders = Number(candidate.savedWalletExposure?.holderCount || 0);
   const sourceCount = ['hasFeeClaim', 'hasGraduated', 'hasTrending'].filter(key => candidate.signals?.[key]).length;
 
-  // Holder distribution
-  if (holderCount >= 500) add(10, `holders ${holderCount}`);
-  else if (holderCount >= 250) add(6, `holders ${holderCount}`);
-  else if (holderCount >= 100) add(2, `holders ${holderCount}`);
+  const sniperCount = Number(candidate.graduation?.sniperCount ?? NaN);
+
+  // Holder distribution — dry-run showed a sweet spot at 500-1200, not "more is better".
+  // >1500 holders underperformed (late/topped tokens), <300 was thin.
+  if (holderCount >= 500 && holderCount <= 1200) add(10, `holders ${holderCount} (sweet spot)`);
+  else if (holderCount > 1200 && holderCount <= 1600) add(3, `holders ${holderCount}`);
+  else if (holderCount > 1600) add(-6, `holders ${holderCount} (likely late/topped)`);
+  else if (holderCount >= 300) add(4, `holders ${holderCount}`);
   else if (holderCount > 0) add(-6, `thin holder base (${holderCount})`);
 
   if (Number.isFinite(maxHolder)) {
@@ -68,16 +72,34 @@ export function scoreCandidate(candidate) {
   }
   if (t && (t.is_wash_trading === true || t.is_wash_trading === 1)) add(-30, 'wash trading flag');
 
-  // Volume / activity
-  if (volume >= 50_000) add(8, `volume $${Math.round(volume / 1000)}k`);
-  else if (volume >= 20_000) add(5, `volume $${Math.round(volume / 1000)}k`);
-  else if (volume >= 10_000) add(2, `volume $${Math.round(volume / 1000)}k`);
-  else if (t) add(-4, `low volume $${Math.round(volume / 1000)}k`);
-  if (swaps >= 500) add(5, `${swaps} swaps`);
-  else if (swaps >= 200) add(2, `${swaps} swaps`);
+  // Swaps — the strongest discriminator in the dry-run. 500-1500 was the sweet spot
+  // (59% win, +3.4% avg). Under 500 = illiquid churn; over 1500 = already pumped/late.
+  if (swaps >= 500 && swaps <= 1500) add(10, `${swaps} swaps (sweet spot)`);
+  else if (swaps > 1500 && swaps <= 2200) add(-4, `${swaps} swaps (late)`);
+  else if (swaps > 2200) add(-8, `${swaps} swaps (overheated)`);
+  else if (swaps >= 250) add(-2, `${swaps} swaps (thin)`);
+  else if (t) add(-6, `${swaps} swaps (illiquid)`);
+
+  // Volume — flat/no edge across buckets in the dry-run, so keep it light.
+  if (volume >= 20_000 && volume <= 60_000) add(3, `volume $${Math.round(volume / 1000)}k`);
+  else if (volume > 0 && volume < 10_000 && t) add(-3, `low volume $${Math.round(volume / 1000)}k`);
+
+  // Sniper count (graduated tokens) — 30-90 snipers was the best band (up to 65% win).
+  // Too few = no interest; too many = bundled snipers that dump together.
+  if (Number.isFinite(sniperCount)) {
+    if (sniperCount >= 30 && sniperCount <= 90) add(8, `${sniperCount} snipers (sweet spot)`);
+    else if (sniperCount > 90 && sniperCount <= 130) add(-6, `${sniperCount} snipers (crowded)`);
+    else if (sniperCount > 130) add(-3, `${sniperCount} snipers`);
+    else if (sniperCount < 25) add(-8, `${sniperCount} snipers (low interest)`);
+  }
+
   if (smartDegens >= 3) add(6, `${smartDegens} smart degens`);
   else if (smartDegens >= 1) add(3, `${smartDegens} smart degen`);
   if (hotLevel >= 2) add(3, `hot level ${hotLevel}`);
+
+  // Entry mcap — buying above ~$110k was consistently late (36% win, -8.8% avg).
+  if (mcap > 120_000) add(-10, `entry mcap $${Math.round(mcap / 1000)}k (late)`);
+  else if (mcap > 100_000) add(-4, `entry mcap $${Math.round(mcap / 1000)}k`);
 
   // Creator conviction (fee claims)
   if (feeClaimSol >= 5) add(8, `fee claim ${feeClaimSol.toFixed(1)} SOL`);
@@ -103,6 +125,17 @@ export function scoreCandidate(candidate) {
   if (sourceCount >= 3) add(10, 'triple signal confluence');
   else if (sourceCount === 2) add(6, 'double signal confluence');
   if (savedHolders >= 1) add(5, `${savedHolders} saved wallet(s) holding`);
+
+  // Supertrend (GeckoTerminal OHLCV) — soft signal by default; only hard-gated when a
+  // strategy sets require_supertrend_bullish. Missing data (common pre-graduation, since
+  // bonding-curve tokens have no AMM pool yet) is scored neutral, not penalized.
+  const st = candidate.supertrend;
+  if (st?.available) {
+    if (st.trend === 'bullish' && st.justFlippedBullish) add(12, 'supertrend just flipped bullish');
+    else if (st.trend === 'bullish') add(5, 'supertrend bullish');
+    else if (st.trend === 'bearish' && st.justFlippedBearish) add(-6, 'supertrend just flipped bearish');
+    else if (st.trend === 'bearish') add(-10, 'supertrend bearish');
+  }
 
   return {
     score: Math.max(0, Math.min(100, Math.round(score))),

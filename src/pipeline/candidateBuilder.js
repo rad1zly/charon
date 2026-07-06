@@ -4,6 +4,7 @@ import { fetchGmgnTokenInfo } from '../enrichment/gmgn.js';
 import { fetchJupiterAsset, fetchJupiterHolders, fetchJupiterChartContext } from '../enrichment/jupiter.js';
 import { fetchSavedWalletExposure } from '../enrichment/wallets.js';
 import { fetchTwitterNarrative } from '../enrichment/twitter.js';
+import { fetchSupertrendContext } from '../enrichment/supertrendSource.js';
 import { gmgnLink } from '../format.js';
 
 export function buildFeeSnapshot(fee, signature) {
@@ -118,6 +119,17 @@ export function filterCandidate(candidate) {
     }
   }
 
+  // Supertrend gate — opt-in. Fails closed on missing data (pre-graduation bonding-curve
+  // tokens usually have no AMM pool yet, so this naturally excludes them until required=false).
+  if (strat.require_supertrend_bullish) {
+    const st = candidate.supertrend;
+    if (!st?.available) {
+      failures.push(`supertrend: unavailable (${st?.reason || 'no data'})`);
+    } else if (st.trend !== 'bullish') {
+      failures.push(`supertrend: ${st.trend} (requires bullish)`);
+    }
+  }
+
   return { passed: failures.length === 0, failures, strategy: strat.id };
 }
 
@@ -129,6 +141,7 @@ export async function buildCandidate({ mint, fee = null, signature = null, gradu
   const chart = await fetchJupiterChartContext(mint);
   const savedWalletExposure = await fetchSavedWalletExposure(mint, holders);
   const twitterNarrative = await fetchTwitterNarrative(graduatedCoin || jupiterAsset, gmgn);
+  const supertrend = await fetchSupertrendContext(mint).catch(() => ({ available: false, reason: 'fetch_error' }));
   const priceUsd = firstPositiveNumber(tokenPriceFromGmgn(gmgn), jupiterAsset?.usdPrice, trendingToken?.price);
   const marketCapUsd = firstPositiveNumber(
     marketCapFromGmgn(gmgn),
@@ -190,6 +203,7 @@ export async function buildCandidate({ mint, fee = null, signature = null, gradu
     chart,
     savedWalletExposure,
     twitterNarrative,
+    supertrend,
     createdAtMs: now(),
   };
   candidate.filters = filterCandidate(candidate);

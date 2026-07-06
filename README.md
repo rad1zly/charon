@@ -20,14 +20,16 @@ Screening is fully deterministic — no API keys, no latency, no non-reproducibl
 
 | Signal | Effect |
 |---|---|
-| Holder count (≥500 / ≥250 / ≥100 / <100) | +10 / +6 / +2 / −6 |
+| Holders (500–1200 sweet spot / 1200–1600 / >1600 / 300–500 / <300) | +10 / +3 / −6 / +4 / −6 |
 | Max single holder (≤5% / ≤10% / >15% / >25%) | +8 / +4 / −8 / −15 |
 | Top-20 concentration (≤40% / ≥70%) | +6 / −10 |
 | Bundler rate (≤10% / ≤20% / >35% / >50%) | +8 / +4 / −10 / −20 |
 | Rug ratio (≤10% / >30%) | +6 / −12 |
 | Wash-trading flag | −30 |
-| Volume ($50k+ / $20k+ / $10k+ / <$5k) | +8 / +5 / +2 / −4 |
-| Swaps (≥500 / ≥200) | +5 / +2 |
+| Swaps (500–1500 sweet spot / 1500–2200 / >2200 / 250–500 / <250) | +10 / −4 / −8 / −2 / −6 |
+| Volume ($20k–$60k / <$10k) | +3 / −3 |
+| Sniper count, graduated tokens (30–90 sweet spot / 90–130 / >130 / <25) | +8 / −6 / −3 / −8 |
+| Entry mcap (>$120k / >$100k) | −10 / −4 |
 | Smart degens holding (≥3 / ≥1) | +6 / +3 |
 | Creator fee claim (≥5 SOL / ≥1 SOL) | +8 / +5 |
 | Total trading fees ≥10 SOL | +4 |
@@ -36,10 +38,53 @@ Screening is fully deterministic — no API keys, no latency, no non-reproducibl
 | Dip zone (25–60% below ATH) | +4 |
 | Signal confluence (3 sources / 2 sources) | +10 / +6 |
 | Saved wallet holding | +5 |
+| Supertrend just flipped bullish / bullish / just flipped bearish / bearish | +12 / +5 / −6 / −10 |
 
-The final score is clamped to 0–100. A candidate buys only when its score ≥ the strategy's `min_score`, so every decision is explainable — the scoring reasons are logged with each decision and shown in the Telegram alert.
+The final score is clamped to 0–100. A candidate buys only when its score ≥ the strategy's `min_score`, so every decision is explainable — the scoring reasons are logged with each decision and shown in the Telegram alert. Several rules are intentionally **non-monotonic** (e.g. swaps, holders, sniper count, entry mcap) — a 102-trade dry-run window showed real sweet spots rather than "more is always better"; see [Tuning from dry-run](#tuning-from-dry-run).
 
 The scoring rules live in [src/pipeline/ruleEngine.js](src/pipeline/ruleEngine.js); `min_score` is tunable per strategy (`/stratset trencher min_score 70`).
+
+## Supertrend entry signal
+
+Charon can compute the [Supertrend](https://www.tradingview.com/support/solutions/43000634738-supertrend/) indicator (ATR bands + trend-following direction) from live OHLCV candles, using two DEX-native data sources with automatic fallback between them.
+
+**Data sources — [DexPaprika](https://docs.dexpaprika.com) primary, [GeckoTerminal](https://www.geckoterminal.com/dex-api) fallback:**
+
+Both are free, public, DEX-native, and require no API key. DexPaprika is primary because it has richer pool metadata (dex name, FDV, creation date, multi-field price change) and a clear 10,000 req/day budget. But it was live-tested to have one real gap: **its OHLCV only returns candles where a trade actually happened — it does not forward-fill quiet minutes.** On a deep pool that's a non-issue; on typical trench-sized pools it gets gappy. GeckoTerminal forward-fills flat candles for quiet minutes instead, which is what ATR/Supertrend math needs.
+
+Live comparison, 1-minute candles, same 30/60-minute window:
+
+| Pool | Liquidity profile | DexPaprika candles | GeckoTerminal candles |
+|---|---|---|---|
+| SOL/USDC (Orca) | very deep | 29/30 | 30/30 |
+| Fresh PumpSwap trench token, hours old | ~$5k, typical Trencher target | 5/60 (gappy) | 60/60 (complete) |
+
+Charon fetches DexPaprika first, checks candle density (`SUPERTREND_MIN_DENSITY_RATIO`, `SUPERTREND_MAX_GAP_MULTIPLE`), and falls back to GeckoTerminal **using the same on-chain pool address** (both APIs report the real pool account, so no second pool lookup is needed) whenever DexPaprika's data is too sparse to trust. `candidate.supertrend.source` tells you which one actually served the result (`dexpaprika` or `geckoterminal_fallback`) — visible in `/candidate` and the dashboard's Trend column.
+
+**How it works ([src/enrichment/supertrendSource.js](src/enrichment/supertrendSource.js)):**
+1. Resolve the token's highest-volume on-chain pool via DexPaprika (`/networks/solana/tokens/{mint}/pools`), falling back to GeckoTerminal's pool lookup if DexPaprika has no pool for that mint.
+2. Pull recent 1-minute OHLCV candles from DexPaprika; if sparse/gappy, re-fetch from GeckoTerminal using the same pool address.
+3. Compute ATR (Wilder's smoothing) and the Supertrend bands/direction ([src/indicators/supertrend.js](src/indicators/supertrend.js)).
+4. Attach the result to the candidate as `candidate.supertrend` — used by both the rule-engine score (always active) and an optional hard gate.
+
+**Important caveat:** pump.fun tokens trade on a bonding curve *before* they graduate to an AMM pool. Neither source indexes bonding-curve trades, so **supertrend is unavailable for pre-graduation tokens** (`reason: "no_pool"`) — this is expected, not a bug, and the score treats it as neutral (no bonus, no penalty) rather than failing the candidate.
+
+**Two ways it affects entries:**
+- **Score bonus/penalty** (always on): `+12` if the trend just flipped bullish, `+5` if already bullish, `−6`/`−10` if bearish. Missing data is neutral.
+- **Hard gate** (opt-in, off by default): set `require_supertrend_bullish: true` on a strategy to reject any candidate that isn't confirmed bullish — `/stratset trencher require_supertrend_bullish true`, or toggle it from `/menu → Strategy`.
+
+Recommended path: dry-run with the gate **off** first (so you only get the scoring nudge) and watch the "Supertrend" line on `/candidate` and the dashboard's Trend column. Turn the gate on once you've confirmed it's not starving your candidate flow (it will, on strategies that trade a lot of fresh bonding-curve tokens).
+
+```env
+DEXPAPRIKA_REQUEST_DELAY_MS=300        # DexPaprika free tier: 10,000 req/day
+GECKOTERMINAL_REQUEST_DELAY_MS=2200    # GeckoTerminal free tier (fallback only): ~30 req/min
+SUPERTREND_TIMEFRAME=minute
+SUPERTREND_AGGREGATE=1                 # 1-minute candles
+SUPERTREND_PERIOD=10
+SUPERTREND_MULTIPLIER=3
+SUPERTREND_MIN_DENSITY_RATIO=0.6       # fallback triggers below 60% of requested candles
+SUPERTREND_MAX_GAP_MULTIPLE=3          # fallback triggers if any gap > 3x the interval
+```
 
 ## Strategies
 
@@ -47,30 +92,44 @@ Switch with `/strategy <id>` in Telegram. Tune any key with `/stratset <id> <key
 
 | | trencher (default) | sniper | dip_buy | smart_money | degen |
 |---|---|---|---|---|---|
-| Mcap band | $15k–150k | $7k–200k | $25k–500k | $10k–1M | $5k–100k |
-| Min holders | 200 | – | – | 1000 | – |
-| Max top holder | 15% | – | – | 50% | – |
+| Mcap band | $15k–110k | $7k–200k | $25k–500k | $10k–1M | $5k–100k |
+| Min holders | 300 | – | – | 1000 | – |
+| Max top holder | 60% | – | – | 50% | – |
 | Min liquidity | $10k | $5k | $5k | $10k | – |
-| Min trend volume / swaps | $15k / 250 | – | – | $5k / 100 | – |
+| Min trend volume / swaps | $15k / 500 | – | – | $5k / 100 | – |
 | Max bundler rate | 30% | 50% | 50% | 30% | 70% |
 | Max rug ratio | 25% | 30% | 30% | 20% | 50% |
-| Min score | 65 | 60 | 60 | 70 | 55 |
+| Min score | 70 | 60 | 60 | 70 | 55 |
 | Size | 0.05 SOL | 0.1 SOL | 0.05 SOL | 0.1 SOL | 0.05 SOL |
-| TP (arms trailing) | +40% | +50% | +30% | +100% | +30% |
-| SL | −20% | −25% | −20% | −25% | −15% |
-| Trailing stop | 15% | 20% | 15% | off | 10% |
-| Partial TP | 50% @ +60% | off | off | 50% @ +100% | off |
-| Max hold | 45m | off | off | off | off |
+| TP (arms trailing) | +15% | +50% | +30% | +100% | +30% |
+| SL | −12% | −25% | −20% | −25% | −15% |
+| Trailing stop | 8% | 20% | 15% | off | 10% |
+| Partial TP | 50% @ +40% | off | off | 50% @ +100% | off |
+| Max hold | 30m | off | off | off | off |
 
 ### Trencher exit logic
 
-The default `trencher` strategy is tuned for post-graduation Pump runners with real holder distribution and volume:
+The default `trencher` strategy is tuned for post-graduation Pump runners, and its numbers come from a real dry-run window (see [Tuning from dry-run](#tuning-from-dry-run) below):
 
-- **Entry gates**: ≥200 holders, no single wallet above 15%, ≥$10k liquidity, ≥$15k trending volume with ≥250 swaps, bundler rate ≤30%, rug ratio ≤25%, mcap $15k–150k, at least 2 overlapping signals.
-- **SL −20%** — thesis is wrong, cut fast. Trench tokens rarely recover a −20% dump.
-- **TP +40% arms the trailing stop** — it does not sell; from there the position rides the trend.
-- **Trailing 15%** — sells when price drops 15% from its high-water mark, capturing runners without round-tripping back to zero.
-- **Partial TP: sell 50% at +60%** — de-risks the position; the remainder is house money riding the trailing stop.
+- **Entry gates**: ≥300 holders, ≥$10k liquidity, ≥$15k trending volume with **≥500 swaps** (the strongest single edge found), bundler ≤30%, rug ≤25%, **mcap $15k–110k** (buying above ~$110k was consistently late), ≥2 overlapping signals.
+- **SL −12%** — trench tokens rarely recover a hard dump. Note: on microcaps the stop *gaps through* between price checks, so realized stops are worse than −12%; the real risk control is entry selectivity, not a tighter number.
+- **TP +15% arms the trailing stop** — it does not sell; from there the position rides the trend.
+- **Trailing 8%** — sells when price drops 8% from its high-water mark, capturing runners without round-tripping.
+- **Partial TP: sell 50% at +40%** — de-risks; the remainder is house money on the trailing stop.
+
+### Tuning from dry-run
+
+The shipped `trencher` numbers were derived from a **102-trade dry-run** (51% win, but −0.83% avg because average losses (−22%) outran average wins (+20%)). Replaying the same trades with different filters showed what actually separates winners from losers:
+
+| Finding | Action taken |
+|---|---|
+| **Swaps 500–1500** won 59% (+3.4% avg); <500 and >1500 both lost | `trending_min_swaps` 250 → 500; swaps sweet-spot added to scoring |
+| **Entry mcap >$120k** won only 36% (−8.8% avg) | `max_mcap_usd` 150k → 110k; late-entry penalty in scoring |
+| **Sniper count 30–90** (graduated) won up to 65%; <25 or >120 lost | sniper sweet-spot added to scoring |
+| **Holders 500–1200** was the sweet spot; >1600 underperformed | holder scoring made non-monotonic |
+| **The rule-engine score didn't predict outcomes** (winner avg 79.2 vs loser 79.0) | scoring reworked around the non-monotonic sweet spots above |
+
+Applying the new filters + scoring to the same window flipped the result from **−0.042 SOL to +0.045 SOL** while still taking 57% of the trades. The score is now a secondary signal — the hard filters do the heavy lifting. Re-run `/learn` on your own dry-run window periodically; these bands drift with market regime.
 - **Max hold 45m** — in the trenches, dead momentum is an exit signal; capital rotates to the next candidate.
 
 ## Access

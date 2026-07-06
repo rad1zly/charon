@@ -248,36 +248,40 @@ export function initDb() {
   const stratInsert = db.prepare('INSERT OR IGNORE INTO strategies (id, name, enabled, config_json, created_at_ms) VALUES (?, ?, ?, ?, ?)');
   const ts = Date.now();
 
+  // Trencher — tuned from a 102-trade dry-run window (see README "Tuning from dry-run").
+  // Key findings: swaps 500-1500 and entry mcap <=110k were the cleanest edges; the
+  // stop gaps through on microcap dumps so risk is controlled at entry, not via a tighter SL.
   stratInsert.run('trencher', 'Trencher', 0, JSON.stringify({
     entry_mode: 'immediate',
     min_source_count: 2,
     require_fee_claim: false,
     token_age_max_ms: 21600000,
     min_mcap_usd: 15000,
-    max_mcap_usd: 150000,
+    max_mcap_usd: 110000,
     min_fee_claim_sol: 0,
     min_gmgn_total_fee_sol: 0,
-    min_holders: 200,
-    max_top20_holder_percent: 15,
+    min_holders: 300,
+    max_top20_holder_percent: 60,
     min_saved_wallet_holders: 0,
     max_ath_distance_pct: 0,
     min_graduated_volume_usd: 0,
     min_liquidity_usd: 10000,
     trending_min_volume_usd: 15000,
-    trending_min_swaps: 250,
+    trending_min_swaps: 500,
     trending_max_rug_ratio: 0.25,
     trending_max_bundler_rate: 0.3,
     position_size_sol: 0.05,
     max_open_positions: 3,
-    tp_percent: 40,
-    sl_percent: -20,
+    tp_percent: 15,
+    sl_percent: -12,
     trailing_enabled: true,
-    trailing_percent: 15,
+    trailing_percent: 8,
     partial_tp: true,
-    partial_tp_at_percent: 60,
+    partial_tp_at_percent: 40,
     partial_tp_sell_percent: 50,
-    max_hold_ms: 2700000,
-    min_score: 65,
+    max_hold_ms: 1800000,
+    min_score: 70,
+    require_supertrend_bullish: false,
   }), ts);
 
   stratInsert.run('sniper', 'Sniper', 0, JSON.stringify({
@@ -310,6 +314,7 @@ export function initDb() {
     max_hold_ms: 0,
     min_liquidity_usd: 5000,
     min_score: 60,
+    require_supertrend_bullish: false,
   }), ts);
 
   stratInsert.run('dip_buy', 'Dip Buy', 0, JSON.stringify({
@@ -342,6 +347,7 @@ export function initDb() {
     max_hold_ms: 0,
     min_liquidity_usd: 5000,
     min_score: 60,
+    require_supertrend_bullish: false,
   }), ts);
 
   stratInsert.run('smart_money', 'Smart Money', 0, JSON.stringify({
@@ -374,6 +380,7 @@ export function initDb() {
     max_hold_ms: 0,
     min_liquidity_usd: 10000,
     min_score: 70,
+    require_supertrend_bullish: false,
   }), ts);
 
   stratInsert.run('degen', 'Degen', 0, JSON.stringify({
@@ -406,6 +413,7 @@ export function initDb() {
     max_hold_ms: 0,
     min_liquidity_usd: 0,
     min_score: 55,
+    require_supertrend_bullish: false,
   }), ts);
 
   // Fresh installs default to Trencher; existing installs keep their active strategy.

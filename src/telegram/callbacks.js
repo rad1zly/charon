@@ -197,7 +197,7 @@ async function handleStratConfig(query, chatId, key) {
   delete newConfig.name;
 
   // Boolean toggles
-  const boolKeys = new Set(['trailing_enabled', 'partial_tp', 'require_fee_claim']);
+  const boolKeys = new Set(['trailing_enabled', 'partial_tp', 'require_fee_claim', 'require_supertrend_bullish']);
   if (boolKeys.has(key)) {
     newConfig[key] = !strat[key];
     updateStrategyConfig(strat.id, newConfig);

@@ -128,6 +128,9 @@ function candidates(url) {
       holderCount: candidate.metrics?.holderCount ?? null,
       passed: Boolean(filters.passed),
       failures: filters.failures || [],
+      supertrend: candidate.supertrend?.available
+        ? { trend: candidate.supertrend.trend, justFlipped: Boolean(candidate.supertrend.justFlippedBullish || candidate.supertrend.justFlippedBearish), source: candidate.supertrend.source }
+        : { trend: null, reason: candidate.supertrend?.reason || 'no data' },
     };
   });
 }

@@ -210,6 +210,7 @@ export function strategyMenuText() {
     strat.partial_tp ? `Partial TP: ${strat.partial_tp_sell_percent}% at ${fmtPct(strat.partial_tp_at_percent)}` : null,
     strat.max_hold_ms > 0 ? `Max hold: ${Math.round(strat.max_hold_ms / 60000)}m` : null,
     `Min score: ${strat.min_score ?? 60} (rule-based)`,
+    `Supertrend gate: ${strat.require_supertrend_bullish ? 'on (requires bullish)' : 'off (score-only)'}`,
     '',
     ...all.map(s => `${s.enabled ? '▶' : '○'} ${s.name}`),
   ].filter(Boolean).join('\n');
@@ -277,6 +278,7 @@ export function strategyKeyboard() {
     ],
     [
       { text: `Partial At ${strat.partial_tp_at_percent}%`, callback_data: 'stratinput:partial_tp_at_percent' },
+      { text: `Supertrend Gate ${strat.require_supertrend_bullish ? 'on' : 'off'}`, callback_data: 'stratcfg:require_supertrend_bullish' },
     ],
   ];
   return {

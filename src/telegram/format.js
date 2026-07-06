@@ -59,6 +59,9 @@ export function candidateSummary(candidate, decision = null) {
       `${candidate.twitterNarrative.metrics.quotes} quotes`,
     ].join(' · ') : null,
     candidate.feeClaim ? `Fee claim: <b>${fmtSol(candidate.feeClaim.distributedSol)} SOL</b>` : null,
+    candidate.supertrend?.available
+      ? `Supertrend: <b>${candidate.supertrend.trend}</b>${candidate.supertrend.justFlippedBullish ? ' (just flipped 🔄)' : ''} · ${escapeHtml(candidate.supertrend.dex || '')} via ${escapeHtml(candidate.supertrend.source === 'geckoterminal_fallback' ? 'GeckoTerminal (fallback)' : 'DexPaprika')}`
+      : `Supertrend: <i>n/a (${escapeHtml(candidate.supertrend?.reason || 'no data')})</i>`,
     candidate.twitterNarrative?.text ? `Narrative: ${escapeHtml(candidate.twitterNarrative.text.slice(0, 220))}` : null,
     decision ? `Screen: <b>${escapeHtml(decision.verdict)}</b> score ${Math.round(Number(decision.confidence) || 0)} — ${escapeHtml(decision.reason || '')}` : null,
     candidate.filters.passed ? null : `Filtered: ${escapeHtml(candidate.filters.failures.join('; '))}`,

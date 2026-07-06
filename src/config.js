@@ -39,6 +39,43 @@ export const DASHBOARD_HOST = process.env.DASHBOARD_HOST || '127.0.0.1';
 export const DASHBOARD_PORT = Number(process.env.DASHBOARD_PORT || 8787);
 export const DASHBOARD_TOKEN = process.env.DASHBOARD_TOKEN || '';
 
+// DexPaprika (DexPaprika by CoinPaprika) — primary OHLCV source. Public, no key
+// required, 10,000 req/day free tier, richer pool metadata than GeckoTerminal.
+// Its OHLCV only returns candles where a trade happened (no forward-fill), which
+// gets sparse/gappy on low-volume trench pools — see GECKOTERMINAL_* below for
+// the automatic fallback used when that happens.
+export const DEXPAPRIKA_ENABLED = process.env.DEXPAPRIKA_ENABLED !== 'false';
+export const DEXPAPRIKA_BASE_URL = process.env.DEXPAPRIKA_BASE_URL || 'https://api.dexpaprika.com';
+export const DEXPAPRIKA_NETWORK = process.env.DEXPAPRIKA_NETWORK || 'solana';
+export const DEXPAPRIKA_REQUEST_DELAY_MS = Number(process.env.DEXPAPRIKA_REQUEST_DELAY_MS || 300);
+export const DEXPAPRIKA_POOL_CACHE_TTL_MS = Number(process.env.DEXPAPRIKA_POOL_CACHE_TTL_MS || 15 * 60 * 1000);
+export const DEXPAPRIKA_POOL_MISS_TTL_MS = Number(process.env.DEXPAPRIKA_POOL_MISS_TTL_MS || 2 * 60 * 1000);
+export const DEXPAPRIKA_OHLCV_CACHE_TTL_MS = Number(process.env.DEXPAPRIKA_OHLCV_CACHE_TTL_MS || 30_000);
+
+// GeckoTerminal DEX API — fallback OHLCV source only, used when DexPaprika's
+// candles are too sparse for reliable ATR/Supertrend math (see supertrendSource.js).
+// Public, no key required. Free tier is rate-limited to ~30 req/min.
+export const GECKOTERMINAL_ENABLED = process.env.GECKOTERMINAL_ENABLED !== 'false';
+export const GECKOTERMINAL_BASE_URL = process.env.GECKOTERMINAL_BASE_URL || 'https://api.geckoterminal.com/api/v2';
+export const GECKOTERMINAL_NETWORK = process.env.GECKOTERMINAL_NETWORK || 'solana';
+export const GECKOTERMINAL_REQUEST_DELAY_MS = Number(process.env.GECKOTERMINAL_REQUEST_DELAY_MS || 2200);
+export const GECKOTERMINAL_POOL_CACHE_TTL_MS = Number(process.env.GECKOTERMINAL_POOL_CACHE_TTL_MS || 15 * 60 * 1000);
+export const GECKOTERMINAL_POOL_MISS_TTL_MS = Number(process.env.GECKOTERMINAL_POOL_MISS_TTL_MS || 2 * 60 * 1000);
+export const GECKOTERMINAL_OHLCV_CACHE_TTL_MS = Number(process.env.GECKOTERMINAL_OHLCV_CACHE_TTL_MS || 30_000);
+
+// Supertrend — computed from 1-minute candles by default (DexPaprika primary,
+// GeckoTerminal fallback on sparse data).
+export const SUPERTREND_TIMEFRAME = process.env.SUPERTREND_TIMEFRAME || 'minute';
+export const SUPERTREND_AGGREGATE = Number(process.env.SUPERTREND_AGGREGATE || 1);
+export const SUPERTREND_CANDLE_LIMIT = Number(process.env.SUPERTREND_CANDLE_LIMIT || 60);
+export const SUPERTREND_PERIOD = Number(process.env.SUPERTREND_PERIOD || 10);
+export const SUPERTREND_MULTIPLIER = Number(process.env.SUPERTREND_MULTIPLIER || 3);
+// A source is considered too sparse if it returns fewer than this fraction of the
+// candles requested, or if any gap between consecutive candles exceeds this many
+// interval-widths (e.g. a 1m interval with a 15-minute gap is treated as broken).
+export const SUPERTREND_MIN_DENSITY_RATIO = Number(process.env.SUPERTREND_MIN_DENSITY_RATIO || 0.6);
+export const SUPERTREND_MAX_GAP_MULTIPLE = Number(process.env.SUPERTREND_MAX_GAP_MULTIPLE || 3);
+
 export const JSON_HEADERS = {
   Accept: 'application/json, text/plain, */*',
   'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',

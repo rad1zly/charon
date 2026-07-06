@@ -95,7 +95,7 @@
     <div class="panel">
       <h2>Recent candidates</h2>
       <div style="overflow-x:auto"><table id="candTable">
-        <thead><tr><th>Time</th><th>Token</th><th>Signal</th><th>Mcap</th><th>Status</th><th>Failures</th></tr></thead>
+        <thead><tr><th>Time</th><th>Token</th><th>Signal</th><th>Mcap</th><th>Trend</th><th>Status</th><th>Failures</th></tr></thead>
         <tbody></tbody>
       </table></div>
     </div>
@@ -217,6 +217,14 @@ function renderClosed(rows) {
     </tr>`).join('') || '<tr><td colspan="7" class="muted">No closed positions yet</td></tr>';
 }
 
+function trendBadge(st) {
+  if (!st || !st.trend) return `<span class="muted">n/a</span>`;
+  const color = st.trend === 'bullish' ? 'pos' : 'neg';
+  const arrow = st.trend === 'bullish' ? '▲' : '▼';
+  const src = st.source === 'geckoterminal_fallback' ? ' (GT fallback)' : '';
+  return `<span class="${color}" title="${esc(src ? 'GeckoTerminal fallback' : 'DexPaprika')}">${arrow} ${st.trend}${st.justFlipped ? ' 🔄' : ''}${src}</span>`;
+}
+
 function renderCands(rows) {
   $('candTable').querySelector('tbody').innerHTML = rows.map(r => `
     <tr>
@@ -224,9 +232,10 @@ function renderCands(rows) {
       <td><a href="${gmgn(r.mint)}" target="_blank">${esc(r.symbol || short(r.mint))}</a></td>
       <td>${esc(r.route)}</td>
       <td>${usd(r.marketCapUsd)}</td>
+      <td>${trendBadge(r.supertrend)}</td>
       <td><span class="pill ${esc(r.status)}">${esc(r.status)}</span></td>
       <td class="wide muted" style="max-width:260px">${esc((r.failures || []).slice(0, 3).join('; '))}</td>
-    </tr>`).join('') || '<tr><td colspan="6" class="muted">No candidates yet</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="7" class="muted">No candidates yet</td></tr>';
 }
 
 async function tick() {

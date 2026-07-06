@@ -6,6 +6,7 @@ import { fetchGmgnTokenInfo } from '../enrichment/gmgn.js';
 import { fetchJupiterAsset, fetchJupiterHolders, fetchJupiterChartContext, fetchJupiterWalletPnl } from '../enrichment/jupiter.js';
 import { liveWalletPubkey } from '../liveExecutor.js';
 import { fetchSavedWalletExposure } from '../enrichment/wallets.js';
+import { fetchSupertrendContext } from '../enrichment/supertrendSource.js';
 import { filterCandidate } from '../pipeline/candidateBuilder.js';
 import { openPositions } from '../db/positions.js';
 import { updateCandidateSnapshot } from '../db/candidates.js';
@@ -34,6 +35,7 @@ export async function refreshCandidateForExecution(row) {
   const asset = await fetchJupiterAsset(mint, { useCache: false });
   const holders = await fetchJupiterHolders(mint);
   const chart = await fetchJupiterChartContext(mint);
+  const supertrend = await fetchSupertrendContext(mint, { useCache: false }).catch(() => candidate.supertrend || { available: false, reason: 'fetch_error' });
   const selectedTrending = trending.get(mint) || candidate.trending || null;
   const selectedHolders = holders?.holders?.length ? holders : candidate.holders;
   const selectedSavedWalletExposure = selectedHolders
@@ -76,6 +78,7 @@ export async function refreshCandidateForExecution(row) {
     trending: selectedTrending,
     holders: selectedHolders,
     chart,
+    supertrend,
     savedWalletExposure: selectedSavedWalletExposure,
     executionRefresh: {
       refreshedAtMs: now(),
